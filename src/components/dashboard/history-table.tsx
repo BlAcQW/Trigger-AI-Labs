@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { summarizeDetectionHistory } from '@/ai/flows/summarize-detection-history';
 import { detectionHistory } from '@/lib/data';
 import { type DetectionEvent } from '@/lib/types';
@@ -31,6 +31,11 @@ export default function HistoryTable() {
   const [summary, setSummary] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const handleSummarize = async () => {
     setIsLoading(true);
@@ -90,7 +95,7 @@ export default function HistoryTable() {
               {history.map((event) => (
                 <TableRow key={event.eventId}>
                   <TableCell className="font-medium">{event.eventId}</TableCell>
-                  <TableCell>{event.timestamp.toLocaleString()}</TableCell>
+                  <TableCell>{isClient ? event.timestamp.toLocaleString() : ''}</TableCell>
                   <TableCell>{event.cameraId}</TableCell>
                   <TableCell>{event.confidence.toFixed(2)}</TableCell>
                   <TableCell>

@@ -28,6 +28,11 @@ export default function LiveView() {
   const [sensitivity, setSensitivity] = useState(0.7);
   const [recentEvents, setRecentEvents] = useState<DetectionEvent[]>([]);
   const { toast } = useToast();
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const startCamera = async () => {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -200,7 +205,7 @@ export default function LiveView() {
                                 <PersonStanding className="w-5 h-5 text-primary"/>
                                 <div>
                                     <p className="font-medium">Person Detected</p>
-                                    <p className="text-sm text-muted-foreground">{event.timestamp.toLocaleTimeString()}</p>
+                                    <p className="text-sm text-muted-foreground">{isClient ? event.timestamp.toLocaleTimeString() : ''}</p>
                                 </div>
                             </div>
                             <Badge variant={event.callStatus === 'initiated' ? 'default' : 'secondary'} className="capitalize">{event.callStatus}</Badge>
