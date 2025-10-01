@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
-import { PersonStanding, Video, VideoOff } from "lucide-react";
+import { PersonStanding, Video, VideoOff, Mic, Loader2 } from "lucide-react";
 import { type DetectionEvent } from "@/lib/types";
 import { Badge } from "../ui/badge";
+import { textToSpeech } from "@/ai/flows/text-to-speech";
 
 type Detection = {
   x: number;
@@ -19,9 +20,17 @@ type Detection = {
   id: number;
 };
 
+enum ConversationState {
+  IDLE,
+  GREETING,
+  LISTENING,
+  TRIGGERING_CALL,
+}
+
 export default function LiveView() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [roi, setRoi] = useState({ x: 10, y: 10, width: 80, height: 80 }); // in percentage
@@ -30,15 +39,44 @@ export default function LiveView() {
   const { toast } = useToast();
   const [isClient, setIsClient] = useState(false);
 
+  const [conversationState, setConversationState] = useState<ConversationState>(ConversationState.IDLE);
+  const [isGeneratingSpeech, setIsGeneratingSpeech] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
   useEffect(() => {
     setIsClient(true);
-  }, []);
+    if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
+      const recognition = new (window as any).webkitSpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        console.log('Speech recognized:', transcript);
+        if (transcript.trim().length > 0) {
+          triggerCall();
+        }
+        setConversationState(ConversationState.IDLE);
+      };
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setConversationState(ConversationState.IDLE);
+      };
+      recognition.onend = () => {
+        if (conversationState === ConversationState.LISTENING) {
+          setConversationState(ConversationState.IDLE);
+        }
+      };
+      recognitionRef.current = recognition;
+    }
+  }, [conversationState]);
 
   const startCamera = async () => {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 1280, height: 720 },
+          audio: true,
         });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -62,12 +100,59 @@ export default function LiveView() {
       videoRef.current.srcObject = null;
       setIsCameraOn(false);
       setDetections([]);
+      setConversationState(ConversationState.IDLE);
     }
   };
 
   useEffect(() => {
     return () => stopCamera();
   }, []);
+
+  const triggerCall = () => {
+    setConversationState(ConversationState.TRIGGERING_CALL);
+    const newEvent: DetectionEvent = {
+      eventId: `evt_${Date.now()}`,
+      timestamp: new Date(),
+      confidence: Math.random() * (0.99 - 0.8) + 0.8,
+      cameraId: 'CAM-LIVE',
+      callStatus: 'initiated',
+    };
+    
+    setRecentEvents(prev => [newEvent, ...prev].slice(0, 5));
+    
+    toast({
+      title: "Person Detected!",
+      description: "A voice call has been triggered.",
+      action: <div className="p-2 bg-accent rounded-md"><PersonStanding className="text-accent-foreground" /></div>,
+    });
+
+    setTimeout(() => setConversationState(ConversationState.IDLE), 3000);
+  }
+
+  const handleDetection = async () => {
+    if (conversationState !== ConversationState.IDLE) return;
+
+    setConversationState(ConversationState.GREETING);
+    setIsGeneratingSpeech(true);
+    try {
+      const { media } = await textToSpeech("Hello, how are you doing?");
+      if (audioRef.current) {
+        audioRef.current.src = media;
+        audioRef.current.play();
+        audioRef.current.onended = () => {
+          setConversationState(ConversationState.LISTENING);
+          if (recognitionRef.current) {
+            recognitionRef.current.start();
+          }
+        };
+      }
+    } catch (error) {
+      console.error("Error with TTS:", error);
+      setConversationState(ConversationState.IDLE);
+    } finally {
+      setIsGeneratingSpeech(false);
+    }
+  };
 
   useEffect(() => {
     let detectionInterval: NodeJS.Timeout;
@@ -87,24 +172,9 @@ export default function LiveView() {
           };
 
           setDetections((prev) => [...prev, newDetection].slice(-5));
-          
-          const newEvent: DetectionEvent = {
-            eventId: `evt_${Date.now()}`,
-            timestamp: new Date(),
-            confidence: Math.random() * (0.99 - 0.8) + 0.8,
-            cameraId: 'CAM-LIVE',
-            callStatus: 'initiated',
-          };
-          
-          setRecentEvents(prev => [newEvent, ...prev].slice(0, 5));
-          
-          toast({
-            title: "Person Detected!",
-            description: "A voice call has been triggered.",
-            action: <div className="p-2 bg-accent rounded-md"><PersonStanding className="text-accent-foreground" /></div>,
-          });
+          handleDetection();
         }
-      }, 2000);
+      }, 5000); // Increased interval to avoid spamming
     }
 
     return () => {
@@ -112,7 +182,7 @@ export default function LiveView() {
         clearInterval(detectionInterval);
       }
     };
-  }, [isCameraOn, sensitivity, roi, toast]);
+  }, [isCameraOn, sensitivity, roi, toast, conversationState]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -164,6 +234,28 @@ export default function LiveView() {
 
   }, [detections, roi, isCameraOn]);
 
+  const getStatusIndicator = () => {
+    switch(conversationState) {
+      case ConversationState.GREETING:
+        return <div className="absolute top-4 left-4 flex items-center gap-2 p-2 bg-blue-500/80 text-white rounded-lg">
+          {isGeneratingSpeech ? <Loader2 className="animate-spin" /> : <Mic />}
+          <span>Saying: "Hello, how are you doing?"</span>
+        </div>;
+      case ConversationState.LISTENING:
+        return <div className="absolute top-4 left-4 flex items-center gap-2 p-2 bg-green-500/80 text-white rounded-lg">
+          <Mic className="animate-pulse" />
+          <span>Listening for reply...</span>
+        </div>;
+      case ConversationState.TRIGGERING_CALL:
+        return <div className="absolute top-4 left-4 flex items-center gap-2 p-2 bg-red-500/80 text-white rounded-lg">
+          <PersonStanding />
+          <span>Reply received! Triggering call...</span>
+        </div>;
+      default:
+        return null;
+    }
+  }
+
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -183,6 +275,8 @@ export default function LiveView() {
                     className="w-full h-full object-cover"
                 />
                 <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
+                <audio ref={audioRef} style={{ display: 'none' }} />
+                {getStatusIndicator()}
                 {!isCameraOn && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
                         <VideoOff className="w-16 h-16 text-muted-foreground" />
