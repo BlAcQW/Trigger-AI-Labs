@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -33,7 +34,7 @@ export function SidebarNav() {
               className="group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:-ml-1"
               asChild
             >
-              <Link href="/">
+              <Link href="/dashboard">
                 <ShieldCheck className="text-primary" />
                 <span className="sr-only">TriggerTalk</span>
               </Link>
@@ -49,10 +50,10 @@ export function SidebarNav() {
             <SidebarMenuItem>
               <SidebarMenuButton
                 asChild
-                isActive={pathname === '/'}
+                isActive={pathname === '/dashboard'}
                 tooltip="Live View"
               >
-                <Link href="/">
+                <Link href="/dashboard">
                   <Video />
                   <span>Live View</span>
                 </Link>
